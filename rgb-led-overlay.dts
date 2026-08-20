@@ -1,0 +1,28 @@
+/dts-v1/;
+/plugin/;
+
+#include <dt-bindings/pinctrl/am33xx.h>
+#include <dt-bindings/gpio/gpio.h>
+
+&am33xx_pinmux {
+    rgb_led_pin_config_default: rgb_led_pins {
+        pinctrl-single,pins = <
+			AM33XX_PADCONF(AM335X_PIN_GPMC_OEN_REN, PIN_OUTPUT_PULLDOWN, MUX_MODE7)
+			AM33XX_PADCONF(AM335X_PIN_GPMC_WEN, PIN_OUTPUT_PULLDOWN, MUX_MODE7)
+			AM33XX_PADCONF(AM335X_PIN_GPMC_AD12, PIN_OUTPUT_PULLDOWN, MUX_MODE7)
+		>;
+    };
+};
+
+&{/} {
+    rgb_led {
+        compatible = "heehan,rgb_led";
+
+        pinctrl-names = "default";
+        pinctrl-0 = <&rgb_led_pin_config_default>;
+
+        r-gpios = <&gpio2 3 GPIO_ACTIVE_HIGH>;
+        g-gpios = <&gpio2 4 GPIO_ACTIVE_HIGH>;
+        b-gpios = <&gpio1 12 GPIO_ACTIVE_HIGH>;
+    };
+};

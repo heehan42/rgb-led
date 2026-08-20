@@ -1,0 +1,34 @@
+# Kernel module build artifacts
+*.o
+*.ko
+*.mod
+*.mod.c
+*.mod.o
+*.cmd
+*.order
+*.symvers
+*.markers
+
+# Kernel build generated files
+.tmp_versions/
+Module.symvers
+modules.order
+.*.cmd
+
+# Device Tree build artifacts
+*.dtb
+*.dtbo
+*.dts.pp
+
+# Dependency / temporary files
+*.d
+*.tmp
+*.bak
+*~
+
+# Editor / IDE
+.vscode/
+
+# Yocto
+oe-workdir
+oe-logs
