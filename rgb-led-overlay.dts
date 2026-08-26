@@ -4,14 +4,34 @@
 #include <dt-bindings/pinctrl/am33xx.h>
 #include <dt-bindings/gpio/gpio.h>
 
+&tda19988 {
+    status = "disabled";
+};
+
 &am33xx_pinmux {
     rgb_led_pin_config_default: rgb_led_pins {
         pinctrl-single,pins = <
-			AM33XX_PADCONF(AM335X_PIN_GPMC_OEN_REN, PIN_OUTPUT_PULLDOWN, MUX_MODE7)
-			AM33XX_PADCONF(AM335X_PIN_GPMC_WEN, PIN_OUTPUT_PULLDOWN, MUX_MODE7)
-			AM33XX_PADCONF(AM335X_PIN_GPMC_AD12, PIN_OUTPUT_PULLDOWN, MUX_MODE7)
+			AM33XX_PADCONF(AM335X_PIN_LCD_DATA10, PIN_OUTPUT_PULLDOWN, MUX_MODE2)   /* ehrpwm1A : r */
+			AM33XX_PADCONF(AM335X_PIN_LCD_DATA0, PIN_OUTPUT_PULLDOWN, MUX_MODE3)    /* ehrpwm2A : g */
+			AM33XX_PADCONF(AM335X_PIN_LCD_DATA1, PIN_OUTPUT_PULLDOWN, MUX_MODE3)    /* ehrpwm2B : b */
 		>;
     };
+};
+
+&epwmss1 {
+    status = "okay";
+};
+
+&epwmss2 {
+    status = "okay";
+};
+
+&ehrpwm1 {
+    status = "okay";
+};
+
+&ehrpwm2 {
+    status = "okay";
 };
 
 &{/} {
@@ -21,8 +41,10 @@
         pinctrl-names = "default";
         pinctrl-0 = <&rgb_led_pin_config_default>;
 
-        r-gpios = <&gpio2 3 GPIO_ACTIVE_HIGH>;
-        g-gpios = <&gpio2 4 GPIO_ACTIVE_HIGH>;
-        b-gpios = <&gpio1 12 GPIO_ACTIVE_HIGH>;
+        pwms =  <&ehrpwm1 0 1000000 0>,     // r connector 8 36
+                <&ehrpwm2 0 1000000 0>,     // g connector 8 45
+                <&ehrpwm2 1 1000000 0>;     // b connector 8 46
+        pwm-names = "r", "g", "b";
     };
 };
+
