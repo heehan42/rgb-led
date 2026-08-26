@@ -28,14 +28,12 @@ struct rgb_led_data {
 
 static struct class *rgb_led_class;
 
-static ssize_t rgb_led_read(struct file *filp, char __user *buf, size_t count,
-			    loff_t *f_pos)
+static ssize_t rgb_led_read(struct file *filp, char __user *buf, size_t count, loff_t *f_pos)
 {
 	return -EOPNOTSUPP;
 }
 
-static ssize_t rgb_led_write(struct file *filp, const char __user *buf,
-			     size_t count, loff_t *f_pos)
+static ssize_t rgb_led_write(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos)
 {
 	char kbuf[BUF_SIZE];
 	struct rgb_led_data *data = filp->private_data;
@@ -43,10 +41,10 @@ static ssize_t rgb_led_write(struct file *filp, const char __user *buf,
 	if (data == NULL)
 		return -ENODEV;
 
-	dev_info(data->dev, "%s\n", __func__);
+	dev_dbg(data->dev, "%s\n", __func__);
 
 	if (count > sizeof(kbuf) - 1) {
-		dev_warn(data->dev, "count > %d\n", sizeof(kbuf) - 1);
+		dev_err(data->dev, "count > %d\n", sizeof(kbuf) - 1);
 		return -EINVAL;
 	}
 
@@ -67,7 +65,7 @@ static ssize_t rgb_led_write(struct file *filp, const char __user *buf,
 			continue;
 		else if (RGB >= 0 && RGB < 3) {
 			if (kstrtou64(tok, 0, &val[RGB]) != 0) {
-				dev_info(data->dev, "kstrtoint failed\n");
+				dev_err(data->dev, "kstrtoint failed\n");
 				return -EINVAL;
 			}
 
@@ -84,12 +82,12 @@ static ssize_t rgb_led_write(struct file *filp, const char __user *buf,
 			RGB = B_IDX;
 			continue;
 		} else {
-			dev_info(data->dev, "invalid token: %s\n", tok);
+			dev_err(data->dev, "invalid token: %s\n", tok);
 			return -EINVAL;
 		}
 	}
 	if (RGB != -1) {
-		dev_info(data->dev, "missing value for %s\n", rgb_str[RGB]);
+		dev_err(data->dev, "missing value for %s\n", rgb_str[RGB]);
 		return -EINVAL;
 	}
 
@@ -97,15 +95,13 @@ static ssize_t rgb_led_write(struct file *filp, const char __user *buf,
 		if (is_val_changed[i]) {
 			struct pwm_state state;
 			pwm_get_state(data->pwm_rgb[i], &state);
-			state.duty_cycle = DIV_ROUND_CLOSEST_ULL(
-				state.period * min(val[i], 100), 100);
+			state.duty_cycle = DIV_ROUND_CLOSEST_ULL(state.period * min(val[i], 100), 100);
 			pwm_apply_might_sleep(data->pwm_rgb[i], &state);
 
-			dev_info(data->dev, "%s's duty-cycle is set to %llu\n",
-				 rgb_str[i], state.duty_cycle);
+			dev_dbg(data->dev, "%s's duty-cycle is set to %llu\n", rgb_str[i], state.duty_cycle);
 
 		} else {
-			dev_info(data->dev, "%s is not changed\n", rgb_str[i]);
+			dev_dbg(data->dev, "%s is not changed\n", rgb_str[i]);
 		}
 	}
 
@@ -114,10 +110,8 @@ static ssize_t rgb_led_write(struct file *filp, const char __user *buf,
 
 static int rgb_led_open(struct inode *inode, struct file *filp)
 {
-	struct rgb_led_data *data =
-		container_of(inode->i_cdev, struct rgb_led_data, cdev);
-
-	dev_info(data->dev, "%s\n", __func__);
+	struct rgb_led_data *data = container_of(inode->i_cdev, struct rgb_led_data, cdev);
+	dev_dbg(data->dev, "%s\n", __func__);
 	filp->private_data = data;
 	return 0;
 }
@@ -127,12 +121,13 @@ static int rgb_led_release(struct inode *inode, struct file *filp)
 	return 0;
 }
 
-static const struct file_operations rgb_led_fops = { .owner = THIS_MODULE,
-						     .read = rgb_led_read,
-						     .write = rgb_led_write,
-						     .open = rgb_led_open,
-						     .release =
-							     rgb_led_release };
+static const struct file_operations rgb_led_fops = {
+	.owner = THIS_MODULE,
+	.read = rgb_led_read,
+	.write = rgb_led_write,
+	.open = rgb_led_open,
+	.release = rgb_led_release
+};
 
 static int rgb_led_probe(struct platform_device *pdev)
 {
@@ -140,24 +135,19 @@ static int rgb_led_probe(struct platform_device *pdev)
 	int ret;
 	// per-device data 초기화
 	struct rgb_led_data *data =
-		devm_kzalloc(&pdev->dev, sizeof(*data),
-			     GFP_KERNEL); // dev와 memory를 묶어서 관리
+		devm_kzalloc(&pdev->dev, sizeof(*data), GFP_KERNEL); // dev와 memory를 묶어서 관리
 
 	if (!data)
-		return dev_err_probe(&pdev->dev, -ENOMEM,
-				     "failed to get rgb_led_data memory.\n");
+		return dev_err_probe(&pdev->dev, -ENOMEM, "failed to get rgb_led_data memory.\n");
 
 	data->dev = &pdev->dev;
-	dev_info(data->dev, "%s\n", __func__);
+	dev_dbg(data->dev, "%s\n", __func__);
 
 	for (int i = 0; i < ARRAY_SIZE(data->pwm_rgb); i++) {
 		data->pwm_rgb[i] = devm_pwm_get(data->dev, rgb_str[i]);
 
 		if (IS_ERR(data->pwm_rgb[i]))
-			return dev_err_probe(&pdev->dev,
-					     PTR_ERR(data->pwm_rgb[i]),
-					     "failed to get '%s' pwm_device.\n",
-					     rgb_str[i]);
+			return dev_err_probe(&pdev->dev, PTR_ERR(data->pwm_rgb[i]), "failed to get '%s' pwm_device.\n", rgb_str[i]);
 
 		struct pwm_state state;
 		pwm_init_state(data->pwm_rgb[i], &state);
@@ -171,8 +161,7 @@ static int rgb_led_probe(struct platform_device *pdev)
 	// cdev 초기화
 	ret = alloc_chrdev_region(&devno, 0, 1, "rgb-led");
 	if (ret)
-		return dev_err_probe(data->dev, ret,
-				     "failed to allocate chrdev region.\n");
+		return dev_err_probe(data->dev, ret, "failed to allocate chrdev region.\n");
 
 	cdev_init(&data->cdev, &rgb_led_fops);
 	data->cdev.owner = THIS_MODULE;
@@ -183,13 +172,11 @@ static int rgb_led_probe(struct platform_device *pdev)
 	}
 
 	// 장치 파일 생성
-	struct device *dev = device_create(rgb_led_class, &pdev->dev, devno,
-					   data, "rgb-led");
+	struct device *dev = device_create(rgb_led_class, &pdev->dev, devno, data, "rgb-led");
 	if (IS_ERR(dev)) {
 		cdev_del(&data->cdev);
 		unregister_chrdev_region(devno, 1);
-		return dev_err_probe(data->dev, PTR_ERR(dev),
-				     "failed to create device node.\n");
+		return dev_err_probe(data->dev, PTR_ERR(dev), "failed to create device node.\n");
 	}
 
 	return 0;
@@ -217,7 +204,7 @@ static void rgb_led_remove(struct platform_device *pdev)
 	cdev_del(&data->cdev);
 	unregister_chrdev_region(devno, 1);
 
-	dev_info(data->dev, "%s\n", __func__);
+	dev_dbg(data->dev, "%s\n", __func__);
 }
 
 static const struct of_device_id rgb_led_of_match_table[] = {
@@ -227,8 +214,10 @@ static const struct of_device_id rgb_led_of_match_table[] = {
 MODULE_DEVICE_TABLE(of, rgb_led_of_match_table);
 
 static struct platform_driver rgb_led_driver = {
-	.driver = { .name = DRIVER_NAME,
-		    .of_match_table = rgb_led_of_match_table },
+	.driver = {
+		.name = DRIVER_NAME,
+		.of_match_table = rgb_led_of_match_table,
+	},
 	.probe = rgb_led_probe,
 	.remove = rgb_led_remove
 };
