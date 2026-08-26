@@ -38,8 +38,10 @@ static ssize_t rgb_led_write(struct file *filp, const char __user *buf, size_t c
 	char kbuf[BUF_SIZE];
 	struct rgb_led_data *data = filp->private_data;
 
-	if (data == NULL)
+	if (data == NULL) {
+		pr_info("failed to get valid data.\n");
 		return -ENODEV;
+	}
 
 	dev_dbg(data->dev, "%s\n", __func__);
 
@@ -126,7 +128,7 @@ static const struct file_operations rgb_led_fops = {
 	.read = rgb_led_read,
 	.write = rgb_led_write,
 	.open = rgb_led_open,
-	.release = rgb_led_release
+	.release = rgb_led_release,
 };
 
 static int rgb_led_probe(struct platform_device *pdev)
@@ -134,8 +136,7 @@ static int rgb_led_probe(struct platform_device *pdev)
 	dev_t devno;
 	int ret;
 	// per-device data 초기화
-	struct rgb_led_data *data =
-		devm_kzalloc(&pdev->dev, sizeof(*data), GFP_KERNEL); // dev와 memory를 묶어서 관리
+	struct rgb_led_data *data = devm_kzalloc(&pdev->dev, sizeof(*data), GFP_KERNEL); // dev와 memory를 묶어서 관리
 
 	if (!data)
 		return dev_err_probe(&pdev->dev, -ENOMEM, "failed to get rgb_led_data memory.\n");
