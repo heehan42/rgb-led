@@ -36,3 +36,6 @@ oe-logs
 # clangd
 .clangd
 compile_commands.json
+
+# app
+app/build/
