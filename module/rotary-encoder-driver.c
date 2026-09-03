@@ -36,6 +36,7 @@
 #define SZ_ROT_SEQ 5
 #define SZ_RE_ROT_SEQ_FIFO 4
 #define SZ_RE_EVENT_FIFO 4
+#define SZ_RE_SW_FIFO 4
 
 enum re_rot_phase {
 	RE_ROT_PHASE_LL,
@@ -60,7 +61,12 @@ struct re_rot_state_q {
 };
 
 struct re_sw_state {
+	bool up;
+};
+
+struct re_sw_state_q {
 	raw_spinlock_t lock;
+	DECLARE_KFIFO(fifo, struct re_sw_state, SZ_RE_SW_FIFO);
 };
 
 enum re_event_type {
@@ -93,6 +99,7 @@ struct re_data {
 	struct work_struct rot_work;
 
 	struct re_sw_state rss;
+	struct re_sw_state_q rss_q;
 	struct work_struct sw_work;
 
 	struct re_event_waitq event_waitq;
@@ -189,7 +196,20 @@ static irqreturn_t re_sw_irq(int irq, void *dev_id)
 {
 	pr_info("%s\n", __func__);
 
+	int ret = 0;
 	struct re_data *data = dev_id;
+	int sw_val = gpiod_get_value(data->gpiod[RE_SW_IDX]);
+	struct re_sw_state sw_state = {
+		.up = sw_val == 1 ? true : false,
+	};
+
+	raw_spin_lock(&data->rss_q.lock);
+	ret = kfifo_put(&data->rss_q.fifo, sw_state);
+	raw_spin_unlock(&data->rss_q.lock);
+
+	if (ret) {
+		queue_work(system_wq, &data->sw_work);
+	}
 
 	return IRQ_HANDLED;
 };
@@ -197,6 +217,31 @@ static irqreturn_t re_sw_irq(int irq, void *dev_id)
 static void re_sw_work(struct work_struct *work)
 {
 	struct re_data *data = container_of(work, struct re_data, sw_work);
+	unsigned long lock_flags;
+	int ret;
+	struct re_sw_state sw_state;
+
+	raw_spin_lock_irqsave(&data->rss_q.lock, lock_flags);
+	ret = kfifo_get(&data->rss_q.fifo, &sw_state);
+	raw_spin_unlock_irqrestore(&data->rss_q.lock, lock_flags);
+
+	if (ret) {
+		struct re_event event;
+
+		if (sw_state.up)
+			event.type = RE_EVENT_SW_UP;
+		else
+			event.type = RE_EVENT_SW_DOWN;
+
+		mutex_lock(&data->event_waitq.mutex);
+		ret = kfifo_put(&data->event_waitq.fifo, event);
+		mutex_unlock(&data->event_waitq.mutex);
+
+		if (ret) {
+			pr_info("[%s:%d] %d event queued.\n", __func__, __LINE__, event.type);
+			wake_up_interruptible(&data->event_waitq.head);
+		}
+	}
 }
 
 static ssize_t re_read(struct file *filp, char __user *buf, size_t count, loff_t *f_pos)
@@ -339,7 +384,8 @@ static int init_re_data(struct re_data *data, struct platform_device *pdev)
 	INIT_KFIFO(data->rrs_q.fifo);
 
 	// rss
-	raw_spin_lock_init(&data->rss.lock);
+	raw_spin_lock_init(&data->rss_q.lock);
+	INIT_KFIFO(data->rss_q.fifo);
 
 	// event wait queue
 	mutex_init(&data->event_waitq.mutex);
