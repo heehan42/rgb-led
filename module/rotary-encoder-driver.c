@@ -25,15 +25,15 @@
 #define LOW 0
 #define HIGH 1
 
-#define RE_CLK_IDX 0
-#define RE_DT_IDX 1
-#define RE_SW_IDX 2
-#define RE_MAX_IDX 3
+#define RE_IDX_CLK 0
+#define RE_IDX_DT 1
+#define RE_IDX_SW 2
+#define RE_IDX_MAX 3
 
 #define NR_ROT_STATES 8
 #define NR_SW_STATES 4
 
-#define SZ_ROT_SEQ 5
+#define SZ_RE_ROT_SEQ 5
 #define SZ_RE_ROT_SEQ_FIFO 4
 #define SZ_RE_EVENT_FIFO 4
 #define SZ_RE_SW_FIFO 4
@@ -46,12 +46,12 @@ enum re_rot_phase {
 };
 
 struct re_rot_seq {
-	enum re_rot_phase ring_buf[SZ_ROT_SEQ];
+	enum re_rot_phase ring_buf[SZ_RE_ROT_SEQ];
 	int tail_idx;
 };
 
 struct re_rot_state {
-	enum re_rot_phase ring_buf[SZ_ROT_SEQ];
+	enum re_rot_phase ring_buf[SZ_RE_ROT_SEQ];
 	int tail_idx;
 };
 
@@ -90,8 +90,8 @@ struct re_data {
 	struct cdev cdev;
 	struct device *dev;
 
-	struct gpio_desc *gpiod[RE_MAX_IDX];
-	int irq[RE_MAX_IDX];
+	struct gpio_desc *gpiod[RE_IDX_MAX];
+	int irq[RE_IDX_MAX];
 
 	raw_spinlock_t rrs_lock;
 	struct re_rot_state rrs;
@@ -107,7 +107,7 @@ struct re_data {
 
 static struct class *re_class;
 const char driver_name[] = "rotary_encoder";
-const char *re_pin_names[RE_MAX_IDX] = { "clk", "dt", "sw" };
+const char *re_pin_names[RE_IDX_MAX] = { "clk", "dt", "sw" };
 
 static irqreturn_t re_rot_irq(int irq, void *dev_id)
 {
@@ -117,14 +117,14 @@ static irqreturn_t re_rot_irq(int irq, void *dev_id)
 	int tail_idx;
 
 	data = dev_id;
-	clk_val = gpiod_get_value(data->gpiod[RE_CLK_IDX]);
-	dt_val = gpiod_get_value(data->gpiod[RE_DT_IDX]);
+	clk_val = gpiod_get_value(data->gpiod[RE_IDX_CLK]);
+	dt_val = gpiod_get_value(data->gpiod[RE_IDX_DT]);
 	phase = (enum re_rot_phase)(clk_val << 1 | dt_val << 0);
 
 	raw_spin_lock(&data->rrs_lock);
 	tail_idx = data->rrs.tail_idx;
 	if (phase != data->rrs.ring_buf[tail_idx]) {
-		tail_idx = (tail_idx + 1) % SZ_ROT_SEQ;
+		tail_idx = (tail_idx + 1) % SZ_RE_ROT_SEQ;
 		data->rrs.ring_buf[tail_idx] = phase;
 		data->rrs.tail_idx = tail_idx;
 
@@ -160,11 +160,11 @@ static void re_rot_work(struct work_struct *work)
 		int ret = 0;
 		struct re_event event;
 
-		if (rot_state.ring_buf[(rot_state.tail_idx + 1) % SZ_ROT_SEQ] == RE_ROT_PHASE_HH &&
-		    rot_state.ring_buf[(rot_state.tail_idx + 2) % SZ_ROT_SEQ] == RE_ROT_PHASE_LH &&
-		    rot_state.ring_buf[(rot_state.tail_idx + 3) % SZ_ROT_SEQ] == RE_ROT_PHASE_LL &&
-		    rot_state.ring_buf[(rot_state.tail_idx + 4) % SZ_ROT_SEQ] == RE_ROT_PHASE_HL &&
-		    rot_state.ring_buf[(rot_state.tail_idx + 0) % SZ_ROT_SEQ] == RE_ROT_PHASE_HH) {
+		if (rot_state.ring_buf[(rot_state.tail_idx + 1) % SZ_RE_ROT_SEQ] == RE_ROT_PHASE_HH &&
+		    rot_state.ring_buf[(rot_state.tail_idx + 2) % SZ_RE_ROT_SEQ] == RE_ROT_PHASE_LH &&
+		    rot_state.ring_buf[(rot_state.tail_idx + 3) % SZ_RE_ROT_SEQ] == RE_ROT_PHASE_LL &&
+		    rot_state.ring_buf[(rot_state.tail_idx + 4) % SZ_RE_ROT_SEQ] == RE_ROT_PHASE_HL &&
+		    rot_state.ring_buf[(rot_state.tail_idx + 0) % SZ_RE_ROT_SEQ] == RE_ROT_PHASE_HH) {
 			// queue cw event
 			event.type = RE_EVENT_CW;
 
@@ -172,11 +172,11 @@ static void re_rot_work(struct work_struct *work)
 			ret = kfifo_put(&data->event_waitq.fifo, event);
 			mutex_unlock(&data->event_waitq.mutex);
 		} else if (
-			rot_state.ring_buf[(rot_state.tail_idx + 1) % SZ_ROT_SEQ] == RE_ROT_PHASE_HH &&
-			rot_state.ring_buf[(rot_state.tail_idx + 2) % SZ_ROT_SEQ] == RE_ROT_PHASE_HL &&
-			rot_state.ring_buf[(rot_state.tail_idx + 3) % SZ_ROT_SEQ] == RE_ROT_PHASE_LL &&
-			rot_state.ring_buf[(rot_state.tail_idx + 4) % SZ_ROT_SEQ] == RE_ROT_PHASE_LH &&
-			rot_state.ring_buf[(rot_state.tail_idx + 0) % SZ_ROT_SEQ] == RE_ROT_PHASE_HH) {
+			rot_state.ring_buf[(rot_state.tail_idx + 1) % SZ_RE_ROT_SEQ] == RE_ROT_PHASE_HH &&
+			rot_state.ring_buf[(rot_state.tail_idx + 2) % SZ_RE_ROT_SEQ] == RE_ROT_PHASE_HL &&
+			rot_state.ring_buf[(rot_state.tail_idx + 3) % SZ_RE_ROT_SEQ] == RE_ROT_PHASE_LL &&
+			rot_state.ring_buf[(rot_state.tail_idx + 4) % SZ_RE_ROT_SEQ] == RE_ROT_PHASE_LH &&
+			rot_state.ring_buf[(rot_state.tail_idx + 0) % SZ_RE_ROT_SEQ] == RE_ROT_PHASE_HH) {
 			// queue ccw event
 			event.type = RE_EVENT_CCW;
 
@@ -198,7 +198,7 @@ static irqreturn_t re_sw_irq(int irq, void *dev_id)
 
 	int ret = 0;
 	struct re_data *data = dev_id;
-	int sw_val = gpiod_get_value(data->gpiod[RE_SW_IDX]);
+	int sw_val = gpiod_get_value(data->gpiod[RE_IDX_SW]);
 	struct re_sw_state sw_state = {
 		.up = sw_val == 1 ? true : false,
 	};
@@ -340,7 +340,7 @@ static int init_re_data(struct re_data *data, struct platform_device *pdev)
 
 	data->dev = &pdev->dev;
 
-	for (int i = 0; i < RE_MAX_IDX; ++i) {
+	for (int i = 0; i < RE_IDX_MAX; ++i) {
 		// get gpiod
 		data->gpiod[i] = devm_gpiod_get(data->dev, re_pin_names[i], GPIOD_IN);
 		if (IS_ERR(data->gpiod[i]))
@@ -355,12 +355,12 @@ static int init_re_data(struct re_data *data, struct platform_device *pdev)
 		irq_handler_t handler;
 		char *handler_name;
 		switch (i) {
-		case RE_CLK_IDX:
-		case RE_DT_IDX:
+		case RE_IDX_CLK:
+		case RE_IDX_DT:
 			handler = re_rot_irq;
 			handler_name = "rotary-encoder-rot";
 			break;
-		case RE_SW_IDX:
+		case RE_IDX_SW:
 			handler = re_sw_irq;
 			handler_name = "rotary-encoder-sw";
 			break;
