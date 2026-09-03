@@ -1,4 +1,4 @@
-obj-m += rgb-led-driver.o
+obj-m += rgb-led-driver.o rotary-encoder-driver.o
 
 SRC := $(shell pwd)
 

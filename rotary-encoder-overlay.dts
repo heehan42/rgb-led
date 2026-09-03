@@ -1,0 +1,36 @@
+/dts-v1/;
+/plugin/;
+
+#include <dt-bindings/pinctrl/am33xx.h>
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/interrupt-controller/irq.h>
+
+&am33xx_pinmux {
+    rotary_encoder_pin_config_default: rotary_encoder_pins {
+        pinctrl-single,pins = <
+			AM33XX_PADCONF(AM335X_PIN_GPMC_WPN,     PIN_INPUT_PULLDOWN, MUX_MODE7)  /* clk : gpio0[31] connector 9 13 */
+			AM33XX_PADCONF(AM335X_PIN_GPMC_WAIT0,   PIN_INPUT_PULLDOWN, MUX_MODE7)  /* dt  : gpio0[30] connector 9 11 */
+            AM33XX_PADCONF(AM335X_PIN_GPMC_BEN1,    PIN_INPUT_PULLDOWN, MUX_MODE7)  /* sw  : gpio1[28] connector 9 12 */
+		>;
+    };
+};
+
+&{/} {
+    rotary_encoder {
+        compatible = "heehan,rotary-encoder";
+
+        pinctrl-names = "default";
+        pinctrl-0 = <&rotary_encoder_pin_config_default>;
+
+        clk-gpios = <&gpio0 31 GPIO_ACTIVE_HIGH>;
+        dt-gpios  = <&gpio0 30 GPIO_ACTIVE_HIGH>;
+        sw-gpios  = <&gpio1 28 GPIO_ACTIVE_HIGH>;
+
+        interrupts-extended = 
+            <&gpio0 31 IRQ_TYPE_EDGE_BOTH>,
+            <&gpio0 30 IRQ_TYPE_EDGE_BOTH>,
+            <&gpio1 28 IRQ_TYPE_EDGE_BOTH>;
+
+        interrupt-names = "clk", "dt", "sw";
+    };
+};
