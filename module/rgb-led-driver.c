@@ -26,11 +26,153 @@ struct rgb_led_data {
 	struct pwm_device *pwm_rgb[3];
 };
 
+enum rgb_led_col {
+	RGB_COL_R,
+	RGB_COL_G,
+	RGB_COL_B
+};
+
+enum rgb_led_op_type {
+	RGB_OP_SET,
+	RGB_OP_ADD,
+	RGB_OP_SUB
+};
+
+struct rgb_led_command {
+	enum rgb_led_col col;
+	enum rgb_led_op_type op;
+	int val;
+};
+
 static struct class *rgb_led_class;
 
 static ssize_t rgb_led_read(struct file *filp, char __user *buf, size_t count, loff_t *f_pos)
 {
 	return -EOPNOTSUPP;
+}
+
+static int parse_command(const char *kbuf, size_t count, struct rgb_led_data *data)
+{
+	struct rgb_led_command cmd;
+	const char *p = kbuf;
+	const char *const end = kbuf + count;
+
+	while (p < end) {
+		while (p < end && (*p == ' ' || *p == ',' || *p == '\t' || *p == '\n'))
+			++p;
+
+		if (p == end)
+			break;
+
+		// col
+		switch (*p) {
+		case 'R':
+		case 'r':
+			cmd.col = RGB_COL_R;
+			++p;
+			break;
+
+		case 'G':
+		case 'g':
+			cmd.col = RGB_COL_G;
+			++p;
+			break;
+
+		case 'B':
+		case 'b':
+			cmd.col = RGB_COL_B;
+			++p;
+			break;
+
+		default:
+			pr_err("[%s:%d] command has no color.");
+			return -EINVAL;
+		}
+
+		while (p < end && (*p == ' ' || *p == ',' || *p == '\t' || *p == '\n'))
+			++p;
+
+		if (p == end)
+			break;
+
+		// operator
+		cmd.op = RGB_OP_SET;
+		if (!strncmp("+=", p, 2)) {
+			cmd.op = RGB_OP_ADD;
+			p += 2;
+		} else if (!strncmp("-=", p, 2)) {
+			cmd.op = RGB_OP_SUB;
+			p += 2;
+		} else if (!strncmp("=", p, 1)) {
+			++p;
+		}
+
+		while (p < end && (*p == ' ' || *p == ',' || *p == '\t' || *p == '\n'))
+			++p;
+
+		if (p == end)
+			break;
+
+		// number
+		const char *digit_start = p;
+		char digit_buf[32];
+
+		if (p < end && (*p == '+' || *p == '-'))
+			++p;
+
+		while (p < end && (*p >= '0' && *p <= '9'))
+			++p;
+
+		int digit_cnt = p - digit_start;
+
+		if (digit_cnt == 0 || (*p != ' ' && *p != ',' && *p != '\t' && *p != '\0' && *p != '\n')) {
+			pr_err("[%s:%d] command has no number.");
+			return -EINVAL;
+		}
+
+		if (digit_cnt >= sizeof(digit_buf)) {
+			pr_err("[%s:%d] too long digit count of number.", __func__, __LINE__);
+			return -EINVAL;
+		}
+
+		memcpy(digit_buf, digit_start, digit_cnt);
+		digit_buf[digit_cnt] = '\0';
+		if (kstrtoint(digit_buf, 0, &cmd.val) != 0) {
+			pr_warn("[%s:%d] wrong input number : %s", digit_buf);
+			return -EINVAL;
+		}
+		cmd.val = max(0, cmd.val);
+		cmd.val = min(100, cmd.val);
+
+		// execute cmd
+		int current_val;
+		struct pwm_state next_state, current_state;
+		pwm_get_state(data->pwm_rgb[cmd.col], &current_state);
+		next_state = current_state;
+		current_val = DIV_ROUND_CLOSEST_ULL(current_state.duty_cycle * 100, current_state.period);
+
+		switch (cmd.op) {
+		case RGB_OP_SET:
+			next_state.duty_cycle = DIV_ROUND_CLOSEST_ULL(cmd.val * current_state.period, 100);
+			break;
+
+		case RGB_OP_ADD:
+			next_state.duty_cycle = DIV_ROUND_CLOSEST_ULL(min(100, current_val + cmd.val) * current_state.period, 100);
+			break;
+
+		case RGB_OP_SUB:
+			next_state.duty_cycle = DIV_ROUND_CLOSEST_ULL(max(0, current_val - cmd.val) * current_state.period, 100);
+			break;
+		}
+
+		pwm_apply_might_sleep(data->pwm_rgb[cmd.col], &next_state);
+		pr_info("command executed.");
+
+		while (p < end && (*p == ' ' || *p == ',' || *p == '\t' || *p == '\n'))
+			++p;
+	}
+
+	return count;
 }
 
 static ssize_t rgb_led_write(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos)
@@ -56,58 +198,7 @@ static ssize_t rgb_led_write(struct file *filp, const char __user *buf, size_t c
 	}
 	kbuf[count] = '\0';
 
-	char *p = kbuf;
-	char *tok;
-	int RGB = -1;
-	u64 val[3] = { 0, 0, 0 };
-	bool is_val_changed[3] = { false, false, false };
-
-	while ((tok = strsep(&p, " ,=\t\n")) != NULL) {
-		if (tok[0] == '\0')
-			continue;
-		else if (RGB >= 0 && RGB < 3) {
-			if (kstrtou64(tok, 0, &val[RGB]) != 0) {
-				dev_err(data->dev, "kstrtoint failed\n");
-				return -EINVAL;
-			}
-
-			is_val_changed[RGB] = true;
-			RGB = -1;
-			continue;
-		} else if (strcmp(tok, "R") == 0) {
-			RGB = R_IDX;
-			continue;
-		} else if (strcmp(tok, "G") == 0) {
-			RGB = G_IDX;
-			continue;
-		} else if (strcmp(tok, "B") == 0) {
-			RGB = B_IDX;
-			continue;
-		} else {
-			dev_err(data->dev, "invalid token: %s\n", tok);
-			return -EINVAL;
-		}
-	}
-	if (RGB != -1) {
-		dev_err(data->dev, "missing value for %s\n", rgb_str[RGB]);
-		return -EINVAL;
-	}
-
-	for (int i = 0; i < 3; ++i) {
-		if (is_val_changed[i]) {
-			struct pwm_state state;
-			pwm_get_state(data->pwm_rgb[i], &state);
-			state.duty_cycle = DIV_ROUND_CLOSEST_ULL(state.period * min(val[i], 100), 100);
-			pwm_apply_might_sleep(data->pwm_rgb[i], &state);
-
-			dev_dbg(data->dev, "%s's duty-cycle is set to %llu\n", rgb_str[i], state.duty_cycle);
-
-		} else {
-			dev_dbg(data->dev, "%s is not changed\n", rgb_str[i]);
-		}
-	}
-
-	return count;
+	return parse_command(kbuf, count, data);
 }
 
 static int rgb_led_open(struct inode *inode, struct file *filp)
