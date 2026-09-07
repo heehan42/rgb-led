@@ -38,21 +38,21 @@
 #define SZ_RE_EVENT_FIFO 4
 #define SZ_RE_SW_FIFO 4
 
-enum re_rot_phase {
-	RE_ROT_PHASE_LL,
-	RE_ROT_PHASE_LH,
-	RE_ROT_PHASE_HL,
-	RE_ROT_PHASE_HH,
-};
+#define RE_ROT_PHASE_LL 0b00
+#define RE_ROT_PHASE_LH 0b01
+#define RE_ROT_PHASE_HL 0b10
+#define RE_ROT_PHASE_HH 0b11
+
+typedef u8 re_rot_phase_t;
 
 struct re_rot_seq {
-	enum re_rot_phase ring_buf[SZ_RE_ROT_SEQ];
-	int tail_idx;
+	re_rot_phase_t ring_buf[SZ_RE_ROT_SEQ];
+	u8 tail_idx;
 };
 
 struct re_rot_state {
-	enum re_rot_phase ring_buf[SZ_RE_ROT_SEQ];
-	int tail_idx;
+	re_rot_phase_t ring_buf[SZ_RE_ROT_SEQ];
+	u8 tail_idx;
 };
 
 struct re_rot_state_q {
@@ -112,14 +112,15 @@ const char *re_pin_names[RE_IDX_MAX] = { "clk", "dt", "sw" };
 static irqreturn_t re_rot_irq(int irq, void *dev_id)
 {
 	struct re_data *data;
-	enum re_rot_phase phase;
+	re_rot_phase_t phase;
 	int clk_val, dt_val;
-	int tail_idx;
+	u8 tail_idx;
+	unsigned int should_queue_work = 0;
 
 	data = dev_id;
 	clk_val = gpiod_get_value(data->gpiod[RE_IDX_CLK]);
 	dt_val = gpiod_get_value(data->gpiod[RE_IDX_DT]);
-	phase = (enum re_rot_phase)(clk_val << 1 | dt_val << 0);
+	phase = (re_rot_phase_t)(clk_val << 1 | dt_val << 0);
 
 	raw_spin_lock(&data->rrs_lock);
 	tail_idx = data->rrs.tail_idx;
@@ -129,18 +130,15 @@ static irqreturn_t re_rot_irq(int irq, void *dev_id)
 		data->rrs.tail_idx = tail_idx;
 
 		if (phase == RE_ROT_PHASE_HH) {
-			unsigned int should_queue_work;
-
 			raw_spin_lock(&data->rrs_q.lock);
 			should_queue_work = kfifo_put(&data->rrs_q.fifo, data->rrs);
 			raw_spin_unlock(&data->rrs_q.lock);
-
-			if (should_queue_work) {
-				queue_work(system_wq, &data->rot_work);
-			}
 		}
 	}
 	raw_spin_unlock(&data->rrs_lock);
+
+	if (should_queue_work)
+		queue_work(system_wq, &data->rot_work);
 
 	return IRQ_HANDLED;
 };
@@ -221,27 +219,30 @@ static void re_sw_work(struct work_struct *work)
 	int ret;
 	struct re_sw_state sw_state;
 
-	raw_spin_lock_irqsave(&data->rss_q.lock, lock_flags);
-	ret = kfifo_get(&data->rss_q.fifo, &sw_state);
-	raw_spin_unlock_irqrestore(&data->rss_q.lock, lock_flags);
-
-	if (ret) {
-		struct re_event event;
-
-		if (sw_state.up)
-			event.type = RE_EVENT_SW_UP;
-		else
-			event.type = RE_EVENT_SW_DOWN;
-
-		mutex_lock(&data->event_waitq.mutex);
-		ret = kfifo_put(&data->event_waitq.fifo, event);
-		mutex_unlock(&data->event_waitq.mutex);
+	do {
+		raw_spin_lock_irqsave(&data->rss_q.lock, lock_flags);
+		ret = kfifo_get(&data->rss_q.fifo, &sw_state);
+		raw_spin_unlock_irqrestore(&data->rss_q.lock, lock_flags);
 
 		if (ret) {
-			pr_info("[%s:%d] %d event queued.\n", __func__, __LINE__, event.type);
-			wake_up_interruptible(&data->event_waitq.head);
-		}
-	}
+			struct re_event event;
+
+			if (sw_state.up)
+				event.type = RE_EVENT_SW_UP;
+			else
+				event.type = RE_EVENT_SW_DOWN;
+
+			mutex_lock(&data->event_waitq.mutex);
+			ret = kfifo_put(&data->event_waitq.fifo, event);
+			mutex_unlock(&data->event_waitq.mutex);
+
+			if (ret) {
+				pr_info("[%s:%d] %d event queued.\n", __func__, __LINE__, event.type);
+				wake_up_interruptible(&data->event_waitq.head);
+			}
+		} else
+			break;
+	} while (true);
 }
 
 static ssize_t re_read(struct file *filp, char __user *buf, size_t count, loff_t *f_pos)
