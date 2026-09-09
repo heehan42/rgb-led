@@ -465,7 +465,6 @@ static struct of_device_id re_match_table[] = {
 	{ .compatible = "heehan,rotary-encoder" },
 	{}
 };
-MODULE_DEVICE_TABLE(of, re_match_table);
 
 static struct platform_driver re_driver = {
 	.driver = {

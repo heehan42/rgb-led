@@ -303,7 +303,6 @@ static const struct of_device_id rgb_led_of_match_table[] = {
 	{ .compatible = "heehan,rgb_led" },
 	{},
 };
-MODULE_DEVICE_TABLE(of, rgb_led_of_match_table);
 
 static struct platform_driver rgb_led_driver = {
 	.driver = {
