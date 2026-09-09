@@ -19,6 +19,7 @@
 static volatile int running = 1;
 static void signal_handler(int sig)
 {
+	printf("[%s:%d] signal %d received\n", __func__, __LINE__, sig);
 	running = 0;
 }
 
@@ -58,8 +59,14 @@ int main()
 	int col = COL_R;
 	int ret;
 
-	signal(SIGTERM, signal_handler);
-	signal(SIGINT, signal_handler);
+	struct sigaction sa = { 0 };
+
+	sa.sa_handler = signal_handler;
+	sigemptyset(&sa.sa_mask);
+	sa.sa_flags = 0;
+
+	sigaction(SIGTERM, &sa, NULL);
+	sigaction(SIGINT, &sa, NULL);
 
 	ret = load_modules();
 	if (ret)
@@ -143,5 +150,6 @@ int main()
 	// close 이후 module unload
 	unload_modules();
 
+	printf("[%s:%d] exit\n", __func__, __LINE__);
 	return EXIT_SUCCESS;
 }
